@@ -147,7 +147,7 @@ DASHBOARD = """
 </head>
 <body>
 <header>
-  <h1>C2 Receiver</h1>
+  <h1>Spyware Receiver</h1>
   <div class="status">Live · auto-refresh 12s · {{ now }}</div>
 </header>
 <div class="container">
