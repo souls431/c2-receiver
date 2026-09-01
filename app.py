@@ -135,6 +135,7 @@ DASHBOARD = r"""
     <div class="section">
       <h3>// DEBUG LOG</h3>
       <a class="dl-btn" href="/file/{{ tid }}/logs/debug.txt" target="_blank">OPEN DEBUG.TXT</a>
+      <a class="dl-btn" href="/download/{{ tid }}/logs" style="margin-left:8px">DOWNLOAD LOGS ZIP</a>
     </div>
   </div>
   {% endfor %}
