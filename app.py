@@ -29,7 +29,7 @@ DASHBOARD = r"""
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RETIservices // LIVE spyware</title>
+<title>C2 // LIVE</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@500;700&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
@@ -171,7 +171,7 @@ DASHBOARD = r"""
 </head>
 <body>
 <header>
-  <h1>Retiservices // LIVE spyware</h1>
+  <h1>C2 // LIVE</h1>
   <div class="status">SYNC {{ now }} · AUTO 8s</div>
 </header>
 <div class="container">
